@@ -1,0 +1,13 @@
+apiVersion: monitoring.rhobs/v1alpha1
+kind: MonitoringStack
+metadata:
+  name: coo-monitoring-stack
+  namespace: coo-observability
+spec:
+  logLevel: debug
+  retention: 7d
+  resourceSelector:
+    matchLabels:
+      app: coo-observability
+  prometheusConfig:
+    enableOtlpHttpReceiver: true

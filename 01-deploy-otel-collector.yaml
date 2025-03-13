@@ -74,7 +74,10 @@ spec:
         auth:
           authenticator: bearertokenauth
 
-      prometheus:
+      otlphttp/coo:
+        endpoint: http://coo-monitoring-stack-prometheus:9090/api/v1/otlp/
+
+      prometheus/uwm:
         endpoint: 0.0.0.0:8889
         resource_to_telemetry_conversion:
           enabled: true # by default resource attributes are dropped
@@ -98,7 +101,7 @@ spec:
           exporters: [debug, otlphttp/loki]
         metrics:
           receivers: [otlp]
-          exporters: [prometheus]
+          exporters: [prometheus/uwm, otlphttp/coo]
 ---
 ### RBAC for sending logs to Tempo
 apiVersion: rbac.authorization.k8s.io/v1
