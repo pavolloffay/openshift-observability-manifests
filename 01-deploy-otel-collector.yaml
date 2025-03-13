@@ -1,0 +1,167 @@
+# based on config/samples/otelcol_v1alpha1_openshift.yaml
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: dev
+  namespace: otel-observability
+spec:
+  observability:
+    metrics:
+      enableMetrics: true
+  config:
+    extensions:
+      bearertokenauth:
+        filename: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+      jaeger:
+        protocols:
+          grpc: {}
+          thrift_http: {}
+          thrift_compact: {}
+          thrift_binary: {}
+      zipkin: {}
+
+    processors:
+      # Needed for Loki and UI plugin
+      resource/loki:
+        attributes:
+          - key:  kubernetes.namespace_name
+            from_attribute: k8s.namespace.name
+            action: upsert
+          - key:  kubernetes.pod_name
+            from_attribute: k8s.pod.name
+            action: upsert
+          - key: kubernetes.container_name
+            from_attribute: k8s.container.name
+            action: upsert
+          - key: log_type
+            value: application
+            action: upsert
+      # Needed for Loki and UI plugin
+      transform/loki:
+        log_statements:
+          - context: log
+            statements:
+              - set(attributes["level"], ConvertCase(severity_text, "lower"))
+          - context: log
+            statements:
+              #               message is used by the OCP console to render the message. If the message is not there it shows the entire payload
+              #               however this sets the message as an attribute which is not recognized by the console
+              - set(attributes["message"], body)
+
+    exporters:
+      debug: {}
+
+      otlphttp/tempo:
+        endpoint: https://tempo-simplest-gateway.tempo-observability.svc.cluster.local:8080/api/traces/v1/dev
+        tls:
+          insecure: false
+          ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+        auth:
+          authenticator: bearertokenauth
+
+      otlphttp/loki:
+        endpoint: https://logging-loki-gateway-http.openshift-logging.svc.cluster.local:8080/api/logs/v1/application/otlp
+        encoding: json
+        tls:
+          ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+        auth:
+          authenticator: bearertokenauth
+
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        resource_to_telemetry_conversion:
+          enabled: true # by default resource attributes are dropped
+
+    service:
+      telemetry:
+        logs:
+          level: "DEBUG"
+          development: true
+          encoding: "json"
+      extensions: [bearertokenauth]
+      pipelines:
+        # Remove this section if Tempo is not deployed
+        traces:
+          receivers: [otlp, jaeger, zipkin]
+          exporters: [otlphttp/tempo]
+        # Remove this section of Loki is not deployed
+        logs:
+          receivers: [otlp]
+          processors: [resource/loki, transform/loki]
+          exporters: [debug, otlphttp/loki]
+        metrics:
+          receivers: [otlp]
+          exporters: [prometheus]
+---
+### RBAC for sending logs to Tempo
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tempostack-traces-write
+rules:
+  - apiGroups:
+      - 'tempo.grafana.com'
+    # this needs to match tenant name in the CR/tenants.yaml and the tenant has be sent in X-Scope-OrgID
+    # The API gateway sends the tenantname as resource (res) to OPA sidecar
+    resources:
+      - dev
+    resourceNames:
+      - traces
+    verbs:
+      - 'create'
+---
+### RBAC for sending logs to Tempo
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tempostack-traces
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tempostack-traces-write
+subjects:
+  - kind: ServiceAccount
+    name: dev-collector
+    namespace: otel-observability
+---
+### RBAC for sending logs to Loki
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-logs-writer
+rules:
+  - apiGroups:
+      - loki.grafana.com
+    resourceNames:
+      - logs
+    resources:
+      - application
+    verbs:
+      - create
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+### RBAC for sending logs to Loki
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-logs-writer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-logs-writer
+subjects:
+  - kind: ServiceAccount
+    name: dev-collector
+    namespace: otel-observability
