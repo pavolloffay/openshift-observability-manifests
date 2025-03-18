@@ -82,6 +82,12 @@ spec:
         resource_to_telemetry_conversion:
           enabled: true # by default resource attributes are dropped
 
+      otlp/acm:
+        endpoint: https://otel-collector-headless.open-cluster-management-observability.svc.cluster.local:4317
+        tls:
+          insecure: false
+          ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+
     service:
       telemetry:
         logs:
@@ -101,7 +107,7 @@ spec:
           exporters: [debug, otlphttp/loki]
         metrics:
           receivers: [otlp]
-          exporters: [prometheus/uwm, otlphttp/coo]
+          exporters: [prometheus/uwm, otlphttp/coo, otlp/acm]
 ---
 ### RBAC for sending logs to Tempo
 apiVersion: rbac.authorization.k8s.io/v1

@@ -11,9 +11,9 @@ metadata:
   name: loki-operator
   namespace: openshift-operators-redhat
 spec:
-  channel: stable-6.1
+  channel: stable-6.2
   installPlanApproval: Automatic
   name: loki-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: loki-operator.v6.1.2
+  startingCSV: loki-operator.v6.2.0
