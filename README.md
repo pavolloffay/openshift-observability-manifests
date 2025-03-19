@@ -42,3 +42,9 @@ dev-collector              ClusterIP   10.217.5.163   <none>        14250/TCP,43
 dev-collector-headless     ClusterIP   None           <none>        14250/TCP,4317/TCP,4318/TCP,14268/TCP,6831/UDP,6832/UDP,8889/TCP,9411/TCP   39m
 dev-collector-monitoring   ClusterIP   10.217.4.175   <none>        8888/TCP
  ```
+
+
+## ACM observability
+
+* docs https://docs.redhat.com/en/documentation/red_hat_advanced_cluster_management_for_kubernetes/2.12/html-single/observability/index#design-your-dashboard
+* source code https://github.com/stolostron/multicluster-observability-operator
