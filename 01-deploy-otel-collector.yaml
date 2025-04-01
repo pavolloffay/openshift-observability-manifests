@@ -28,6 +28,13 @@ spec:
       zipkin: {}
 
     processors:
+      k8sattributes: {}
+      batch: {}
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 25
+
       # Needed for Loki and UI plugin
       resource/loki:
         attributes:
@@ -99,14 +106,16 @@ spec:
         # Remove this section if Tempo is not deployed
         traces:
           receivers: [otlp, jaeger, zipkin]
+          processors: [memory_limiter, k8sattributes, batch]
           exporters: [otlphttp/tempo]
         # Remove this section of Loki is not deployed
         logs:
           receivers: [otlp]
-          processors: [resource/loki, transform/loki]
+          processors: [memory_limiter, k8sattributes, resource/loki, transform/loki, batch]
           exporters: [debug, otlphttp/loki]
         metrics:
           receivers: [otlp]
+          processors: [memory_limiter, k8sattributes, batch]
           exporters: [prometheus/uwm, otlphttp/coo, otlp/acm]
 ---
 ### RBAC for sending logs to Tempo
