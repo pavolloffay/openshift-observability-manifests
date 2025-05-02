@@ -101,22 +101,39 @@ spec:
           level: "DEBUG"
           development: true
           encoding: "json"
+        metrics:
+          # basic, normal, detailed
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: '0.0.0.0'
+                    port: 8885
       extensions: [bearertokenauth]
       pipelines:
         # Remove this section if Tempo is not deployed
         traces:
           receivers: [otlp, jaeger, zipkin]
           processors: [memory_limiter, k8sattributes, batch]
-          exporters: [otlphttp/tempo]
+          exporters:
+            - debug
+#            - otlphttp/tempo
         # Remove this section of Loki is not deployed
         logs:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, resource/loki, transform/loki, batch]
-          exporters: [debug, otlphttp/loki]
+          exporters:
+            - debug
+#            - otlphttp/loki
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, k8sattributes, batch]
-          exporters: [prometheus/uwm, otlphttp/coo, otlp/acm]
+          exporters:
+            - debug
+#            - prometheus/uwm
+#            - otlphttp/coo
+#            - otlp/acm
 ---
 ### RBAC for sending logs to Tempo
 apiVersion: rbac.authorization.k8s.io/v1
