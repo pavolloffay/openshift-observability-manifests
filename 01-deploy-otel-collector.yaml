@@ -6,6 +6,7 @@ metadata:
   name: dev
   namespace: otel-observability
 spec:
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.125.0
   observability:
     metrics:
       enableMetrics: true
@@ -102,6 +103,9 @@ spec:
           development: true
           encoding: "json"
         metrics:
+          #  As of Collector v0.123.0, the service::telemetry::metrics::address setting is ignored. In earlier versions, it could be configured with:
+          # https://opentelemetry.io/docs/collector/internal-telemetry/
+#          address: 0.0.0.0:8888
           # basic, normal, detailed
           level: detailed
           readers:
@@ -109,7 +113,7 @@ spec:
                 exporter:
                   prometheus:
                     host: '0.0.0.0'
-                    port: 8885
+                    port: 8888
       extensions: [bearertokenauth]
       pipelines:
         # Remove this section if Tempo is not deployed
