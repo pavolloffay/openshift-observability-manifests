@@ -6,7 +6,9 @@ metadata:
   name: dev
   namespace: otel-observability
 spec:
-  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.125.0
+#  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0
+  args:
+    feature-gates: service.profilesSupport
   observability:
     metrics:
       enableMetrics: true
@@ -105,15 +107,15 @@ spec:
         metrics:
           #  As of Collector v0.123.0, the service::telemetry::metrics::address setting is ignored. In earlier versions, it could be configured with:
           # https://opentelemetry.io/docs/collector/internal-telemetry/
-#          address: 0.0.0.0:8888
+          address: 0.0.0.0:8888
           # basic, normal, detailed
-          level: detailed
-          readers:
-            - pull:
-                exporter:
-                  prometheus:
-                    host: '0.0.0.0'
-                    port: 8888
+#          level: detailed
+#          readers:
+#            - pull:
+#                exporter:
+#                  prometheus:
+#                    host: '0.0.0.0'
+#                    port: 8888
       extensions: [bearertokenauth]
       pipelines:
         # Remove this section if Tempo is not deployed
@@ -138,6 +140,12 @@ spec:
 #            - prometheus/uwm
 #            - otlphttp/coo
 #            - otlp/acm
+        profiles:
+          receivers: [otlp]
+          processors: []
+          exporters:
+              - debug
+
 ---
 ### RBAC for sending logs to Tempo
 apiVersion: rbac.authorization.k8s.io/v1
