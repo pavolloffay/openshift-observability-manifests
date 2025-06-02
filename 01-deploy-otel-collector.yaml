@@ -101,7 +101,7 @@ spec:
     service:
       telemetry:
         logs:
-          level: "DEBUG"
+          level: "INFO"
           development: true
           encoding: "json"
         metrics:
