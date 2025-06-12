@@ -147,7 +147,34 @@ spec:
               - debug
 
 ---
-### RBAC for sending logs to Tempo
+### RBAC for collector processors
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-processors
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "namespaces", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list", "watch"]
+---
+### RBAC for collector processors
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-processors
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: otel-collector-processors
+subjects:
+  - kind: ServiceAccount
+    name: dev-collector
+    namespace: otel-observability
+---
+### RBAC for sending traces to Tempo
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -192,12 +219,6 @@ rules:
       - application
     verbs:
       - create
-  - apiGroups: [""]
-    resources: ["pods", "namespaces", "nodes"]
-    verbs: ["get", "watch", "list"]
-  - apiGroups: ["apps"]
-    resources: ["replicasets"]
-    verbs: ["get", "list", "watch"]
 ---
 ### RBAC for sending logs to Loki
 apiVersion: rbac.authorization.k8s.io/v1
