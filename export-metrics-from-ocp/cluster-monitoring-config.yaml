@@ -8,4 +8,6 @@ data:
   config.yaml: |
     prometheusK8s:
       remoteWrite:
-        - url: "http://otel-collector.observability.svc.cluster.local:9090/api/v1/write"
+    #    - url: "http://otel-collector.observability.svc.cluster.local:9090/api/v1/write"
+        - url: http://coo-monitoring-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write
+    #      protobuf_message: io.prometheus.write.v2.Request
