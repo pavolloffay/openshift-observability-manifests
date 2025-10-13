@@ -1,0 +1,36 @@
+# based on config/samples/otelcol_v1alpha1_openshift.yaml
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+  namespace: observability
+spec:
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.136.0
+  config:
+    receivers:
+      prometheusremotewrite:
+        endpoint: 0.0.0.0:9090
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 25
+
+    exporters:
+      debug: {}
+
+    service:
+      telemetry:
+        logs:
+          level: "INFO"
+          development: true
+          encoding: "json"
+        metrics:
+      pipelines:
+        metrics:
+          receivers: [prometheusremotewrite]
+          processors: [memory_limiter]
+          exporters:
+            - debug
