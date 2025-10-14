@@ -6,6 +6,12 @@ The in-cluster monitoring exports metrics via Prometheus remote write protocol.
 
 OTEL Remote write receiver https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/receiver/prometheusremotewritereceiver#metadata-wal-records-feature-flag
 
+
+Because the in-cluster monitoring stack Prometheus does not support [remote write v2 protocol](https://issues.redhat.com/browse/OBSDA-1241),
+we have tried a workaround by deploying the Cluster Observability Operator (COO) and configuring remote-write from in-cluster monitoring stack to the `MonitoringStack` CR created by COO and then to the OTEL collector.
+This setup works after enabling the `--enable-feature=metadata-wal-records` and `--enable-feature=native-histograms` flags in the Prometheus instance deployed by COO.
+However, the in-cluster monitoring stack collects classic histograms which OTEL does not support and they are dropped with a warning in the OTEL collector logs.
+
 ## Issues
 
 ### OTEL requires `--enable-feature=metadata-wal-records`
