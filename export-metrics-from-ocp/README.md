@@ -222,7 +222,23 @@ items:
 
 ## Example app deployment
 
-The metrics from the example app are successfully forwarded to the OTEL collector.
+The metrics from the example app are successfully forwarded to the OTEL collector with a native histogram. Config:
+
+```yaml
+    remoteWrite:
+    - url: http://otel-collector.observability.svc.cluster.local:9090/api/v1/write
+      messageVersion: V2.0
+      sendExemplars: true
+      sendNativeHistograms: true
+      writeRelabelConfigs:
+        # This configuration keeps only metrics from the example-app service which uses native histograms
+        - sourceLabels: [ service ]  # The label to inspect
+          regex: 'example-app'           # The value to match (e.g., 'production')
+          action: keep                  # Only KEEP metrics that match the regex
+```
+
+However if the `writeRelabelConfigs` is not specified then the classic histograms from COO reach the OTEL collector and are dropped with a warning.
+
 
 The app is https://github.com/pavolloffay/prometheus-example-app/tree/native-histogram and uses native histograms.
 
