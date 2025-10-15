@@ -8,7 +8,8 @@ spec:
   retention: 7d
   resourceSelector:
     matchLabels:
-      app: observability
+#      app: observability
+      app.kubernetes.io/name:  prometheus-example-app
   alertmanagerConfig:
     disabled: true
   prometheusConfig:
@@ -19,3 +20,14 @@ spec:
       messageVersion: V2.0
       sendExemplars: true
       sendNativeHistograms: true
+      writeRelabelConfigs:
+        # 1. Match the specific label and value you want to KEEP
+        - sourceLabels: [ service ]  # The label to inspect
+          regex: 'example-app'           # The value to match (e.g., 'production')
+          action: keep                  # Only KEEP metrics that match the regex
+
+        # 2. You can also specify the metric name (or pattern) to further filter.
+        #    The '__name__' label holds the metric name.
+#        - sourceLabels: [ __name__ ]
+#          regex: 'http_requests_total'             # Keep only metrics starting with 'myapp_'
+#          action: keep                  # This is optional, but highly recommended for fine-tuning.

@@ -21,6 +21,8 @@ spec:
     exporters:
       debug:
         verbosity: detailed
+      prometheus:
+        endpoint: "0.0.0.0:8889"
 
     service:
       telemetry:
@@ -35,3 +37,4 @@ spec:
           processors: [memory_limiter]
           exporters:
             - debug
+            - prometheus

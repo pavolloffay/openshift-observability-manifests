@@ -219,3 +219,10 @@ items:
       image: quay.io/thanos/thanos:v0.38.0
       resources: {}
 ```
+
+## Example app deployment
+
+The metrics from the example app are successfully forwarded to the OTEL collector.
+
+The app is https://github.com/pavolloffay/prometheus-example-app/tree/native-histogram and uses native histograms.
+
