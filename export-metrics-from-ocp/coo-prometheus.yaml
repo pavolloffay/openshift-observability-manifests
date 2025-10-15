@@ -1,10 +1,13 @@
 # Apply this manifest once the coo-monitoring-stack is deployed.
 #  kubectl apply -f coo-prometheus.yaml --server-side
+# this requires COO 1.3.0+
+# https://github.com/prometheus-operator/prometheus-operator/blob/main/pkg/apis/monitoring/v1/prometheus_types.go#L755
 apiVersion: monitoring.rhobs/v1
 kind: Prometheus
 metadata:
   name: coo-monitoring-stack
 spec:
+  convertClassicHistogramsToNHCB: true
   enableFeatures:
     - metadata-wal-records
     - native-histograms

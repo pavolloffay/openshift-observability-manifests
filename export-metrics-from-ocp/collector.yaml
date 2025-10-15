@@ -19,7 +19,8 @@ spec:
         spike_limit_percentage: 25
 
     exporters:
-      debug: {}
+      debug:
+        verbosity: detailed
 
     service:
       telemetry:

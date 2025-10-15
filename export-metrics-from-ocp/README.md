@@ -101,3 +101,116 @@ spec:
     - metadata-wal-records
     - native-histograms
 ```
+
+## Final Prometheus CR
+
+Below is the final Prometheus CR deployed by COO.
+
+Important parts are:
+```yaml
+    convertClassicHistogramsToNHCB: true
+    enableFeatures:
+      - otlp-write-receiver
+      - metadata-wal-records
+      - native-histograms
+    remoteWrite:
+      - messageVersion: V2.0
+        sendExemplars: true
+        sendNativeHistograms: true
+        url: http://otel-collector.observability.svc.cluster.local:9090/api/v1/write
+```
+
+Even with this configuration the classic histograms are still dropped in the OTEL collector with the same warning as above.
+Maybe the issue is related to https://github.com/prometheus/prometheus/issues/17075?
+
+
+```yaml
+apiVersion: v1
+items:
+- apiVersion: monitoring.rhobs/v1
+  kind: Prometheus
+  metadata:
+    creationTimestamp: "2025-10-15T08:13:40Z"
+    generation: 2
+    labels:
+      app.kubernetes.io/managed-by: observability-operator
+      app.kubernetes.io/name: coo-monitoring-stack
+      app.kubernetes.io/part-of: coo-monitoring-stack
+    name: coo-monitoring-stack
+    namespace: observability
+    ownerReferences:
+    - apiVersion: monitoring.rhobs/v1alpha1
+      blockOwnerDeletion: true
+      controller: true
+      kind: MonitoringStack
+      name: coo-monitoring-stack
+      uid: 12e156d3-ff30-4364-8bc8-f6efd68f2e25
+    resourceVersion: "140359"
+    uid: 8cd9069a-8faa-4833-a494-41bce16ba7cf
+  spec:
+    additionalScrapeConfigs:
+      key: self-scrape-config
+      name: coo-monitoring-stack-self-scrape
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: prometheus
+              app.kubernetes.io/part-of: coo-monitoring-stack
+          topologyKey: kubernetes.io/hostname
+    arbitraryFSAccessThroughSMs: {}
+    convertClassicHistogramsToNHCB: true
+    enableFeatures:
+    - otlp-write-receiver
+    - metadata-wal-records
+    - native-histograms
+    evaluationInterval: 30s
+    logLevel: debug
+    podMetadata:
+      labels:
+        app.kubernetes.io/component: prometheus
+        app.kubernetes.io/part-of: coo-monitoring-stack
+    podMonitorSelector:
+      matchLabels:
+        app: observability
+    portName: web
+    probeSelector:
+      matchLabels:
+        app: observability
+    remoteWrite:
+    - messageVersion: V2.0
+      sendExemplars: true
+      sendNativeHistograms: true
+      url: http://otel-collector.observability.svc.cluster.local:9090/api/v1/write
+    replicas: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 256Mi
+    retention: 7d
+    ruleSelector:
+      matchLabels:
+        app: observability
+    rules:
+      alert: {}
+    scrapeConfigSelector:
+      matchLabels:
+        app: observability
+    scrapeInterval: 30s
+    securityContext:
+      fsGroup: 65534
+      runAsNonRoot: true
+      runAsUser: 65534
+    serviceAccountName: coo-monitoring-stack-prometheus
+    serviceMonitorSelector:
+      matchLabels:
+        app: observability
+    thanos:
+      blockSize: 2h
+      image: quay.io/thanos/thanos:v0.38.0
+      resources: {}
+```
