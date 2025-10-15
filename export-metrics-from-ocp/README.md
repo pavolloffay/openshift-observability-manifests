@@ -120,7 +120,12 @@ Important parts are:
         url: http://otel-collector.observability.svc.cluster.local:9090/api/v1/write
 ```
 
-Even with this configuration the classic histograms are still dropped in the OTEL collector with the same warning as above.
+Even with this configuration the classic histograms are still dropped in the OTEL collector with the same warning as above:
+
+```bash
+{"level":"info","ts":"2025-10-15T08:20:31.925Z","caller":"prometheusremotewritereceiver@v0.136.0/receiver.go:407","msg":"Dropping classic histogram series. Please configure Prometheus to convert classic histograms into Native Histograms Custom Buckets","resource":{"service.instance.id":"e7c5cb83-232b-4b6e-af63-4e720f8baf02","service.name":"otelcol-contrib","service.version":"0.136.0"},"otelcol.component.id":"prometheusremotewrite","otelcol.component.kind":"receiver","otelcol.signal":"metrics","timeseries":"prometheus_http_response_size_bytes_bucket"}
+```
+
 Maybe the issue is related to https://github.com/prometheus/prometheus/issues/17075?
 
 
