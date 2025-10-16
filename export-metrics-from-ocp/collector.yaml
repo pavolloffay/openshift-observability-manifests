@@ -6,21 +6,18 @@ metadata:
   name: otel
   namespace: observability
 spec:
-  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.136.0
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.137.0
   config:
     receivers:
       prometheusremotewrite:
         endpoint: 0.0.0.0:9090
 
     processors:
-      memory_limiter:
-        check_interval: 1s
-        limit_percentage: 75
-        spike_limit_percentage: 25
 
     exporters:
       debug:
-        verbosity: detailed
+        # basic, normal, detailed
+        verbosity: normal
       prometheus:
         endpoint: "0.0.0.0:8889"
 
@@ -34,7 +31,7 @@ spec:
       pipelines:
         metrics:
           receivers: [prometheusremotewrite]
-          processors: [memory_limiter]
+          processors: []
           exporters:
             - debug
             - prometheus
