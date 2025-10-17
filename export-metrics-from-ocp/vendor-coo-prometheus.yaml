@@ -5,17 +5,16 @@
 apiVersion: monitoring.rhobs/v1
 kind: Prometheus
 metadata:
-  name: coo-monitoring-stack
+  name: vendor
 spec:
 #  image: prom/prometheus:v3.7.0
   # https://github.com/rhobs/observability-operator/pull/906#pullrequestreview-3344554594
   # likely to make to COO 1.3.0
   # Prom operator 0.86.1 deploys Prometheus 3.6.0
 #  image: prom/prometheus:v3.6.0
-  # This field is also in COO 1.3
-  convertClassicHistogramsToNHCB: true
   additionalArgs:
-    - name: web.enable-remote-write-receiver
+  - name: web.enable-otlp-receiver
+  convertClassicHistogramsToNHCB: true
   enableFeatures:
     - metadata-wal-records
     - native-histograms

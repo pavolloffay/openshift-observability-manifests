@@ -1,0 +1,16 @@
+apiVersion: monitoring.rhobs/v1alpha1
+kind: MonitoringStack
+metadata:
+  name: vendor
+  namespace: observability
+spec:
+  logLevel: debug
+  retention: 7d
+  resourceSelector:
+    matchLabels:
+      app: none
+  alertmanagerConfig:
+    disabled: true
+  prometheusConfig:
+    replicas: 1
+    enableOtlpHttpReceiver: true

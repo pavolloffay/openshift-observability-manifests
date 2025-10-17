@@ -12,6 +12,17 @@ we have tried a workaround by deploying the Cluster Observability Operator (COO)
 This setup works after enabling the `--enable-feature=metadata-wal-records` and `--enable-feature=native-histograms` flags in the Prometheus instance deployed by COO.
 However, the in-cluster monitoring stack collects classic histograms which OTEL does not support and they are dropped with a warning in the OTEL collector logs.
 
+## Testing setup
+
+See [OCP screenshot](./ocp-screenshot.png). It seems like the COO prometheus instance is under much higher load than the final "vendor" prometheus which receives data via OTLP from the OTELcol.
+
+* coo prometheus `k port-forward prometheus-coo-monitoring-stack-0 9090:9090` http://localhost:9090/query?g0.expr=prometheus_remote_storage_samples_in_total&g0.show_tree=0&g0.tab=graph&g0.range_input=1h&g0.res_type=auto&g0.res_density=medium&g0.display_mode=lines&g0.show_exemplars=0&g1.expr=node_network_up&g1.show_tree=0&g1.tab=graph&g1.range_input=6h&g1.res_type=auto&g1.res_density=medium&g1.display_mode=lines&g1.show_exemplars=0&g2.expr=prometheus_remote_storage_samples_dropped_total&g2.show_tree=0&g2.tab=table&g2.range_input=1h&g2.res_type=auto&g2.res_density=medium&g2.display_mode=lines&g2.show_exemplars=0
+* vendor prometheus `k port-forward prometheus-vendor-0 9091:9090` http://localhost:9091/query?g0.expr=prometheus_remote_storage_samples_in_total&g0.show_tree=0&g0.tab=table&g0.range_input=1h&g0.res_type=auto&g0.res_density=medium&g0.display_mode=lines&g0.show_exemplars=0&g1.expr=node_network_up&g1.show_tree=0&g1.tab=graph&g1.end_input=2025-10-17+16%3A02%3A18&g1.moment_input=2025-10-17+16%3A02%3A18&g1.range_input=6h&g1.res_type=auto&g1.res_density=medium&g1.display_mode=lines&g1.show_exemplars=0 
+
+The issue is that a metrics `node_network_up` has 28 instance in in-cluster prometheus, the COO receives all 28 instances but the final vendor prometheus receives only 16 instances.
+
+Also note this issue https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/43628 - collector stops receiving data after some time.
+
 ## Issues
 
 ### OTEL requires `--enable-feature=metadata-wal-records`
@@ -101,6 +112,17 @@ spec:
     - metadata-wal-records
     - native-histograms
 ```
+
+### prometheusremotewrite http: panic serving: invalid access to shared data
+
+https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/41347#issuecomment-3415872210
+
+Essentially the receiver panics if multiple exporters are specified.
+
+
+### The OTEL col stops receiving data 
+
+https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/43628
 
 ## Final Prometheus CR
 

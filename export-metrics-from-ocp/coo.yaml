@@ -6,6 +6,9 @@ metadata:
 spec:
   logLevel: debug
   retention: 7d
+  resources:
+    limits:
+      memory: 4000Mi
   resourceSelector:
     matchLabels:
 #      app: observability
