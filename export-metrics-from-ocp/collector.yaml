@@ -6,7 +6,7 @@ metadata:
   name: otel
   namespace: observability
 spec:
-  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.137.0
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.139.0
   config:
     receivers:
       prometheusremotewrite:
@@ -16,6 +16,9 @@ spec:
 
     exporters:
       debug:
+        # basic, normal, detailed
+        verbosity: normal
+      debug/other:
         # basic, normal, detailed
         verbosity: normal
       prometheus:
@@ -39,4 +42,4 @@ spec:
           processors: []
           exporters:
             - debug
-#            - otlphttp
+            - otlphttp

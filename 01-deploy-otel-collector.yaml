@@ -29,6 +29,8 @@ spec:
           thrift_compact: {}
           thrift_binary: {}
       zipkin: {}
+      prometheusremotewrite:
+        endpoint: "0.0.0.0:9090"
 
     processors:
       k8sattributes: {}
@@ -37,6 +39,13 @@ spec:
         check_interval: 1s
         limit_percentage: 75
         spike_limit_percentage: 25
+
+      # Remove user.name attribute for user 'pavol'
+      attributes/remove_pavol_username:
+        actions:
+          - key: user.name
+            action: delete
+            pattern: "pavol"
 
       # Needed for Loki and UI plugin
       resource/loki:
@@ -69,7 +78,8 @@ spec:
       debug: {}
 
       otlphttp/tempo:
-        endpoint: https://tempo-simplest-gateway.tempo-observability.svc.cluster.local:8080/api/traces/v1/dev
+#        endpoint: https://tempo-simplest-gateway.tempo-observability.svc.cluster.local:8080/api/traces/v1/dev
+        endpoint: http://tempo-simplest-distributor.tempo-observability.svc.cluster.local:4318
         tls:
           insecure: false
           ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
@@ -107,24 +117,24 @@ spec:
         metrics:
           #  As of Collector v0.123.0, the service::telemetry::metrics::address setting is ignored. In earlier versions, it could be configured with:
           # https://opentelemetry.io/docs/collector/internal-telemetry/
-          address: 0.0.0.0:8888
+#          address: 0.0.0.0:8888
           # basic, normal, detailed
-#          level: detailed
-#          readers:
-#            - pull:
-#                exporter:
-#                  prometheus:
-#                    host: '0.0.0.0'
-#                    port: 8888
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: '0.0.0.0'
+                    port: 8888
       extensions: [bearertokenauth]
       pipelines:
         # Remove this section if Tempo is not deployed
         traces:
           receivers: [otlp, jaeger, zipkin]
-          processors: [memory_limiter, k8sattributes, batch]
+          processors: [memory_limiter, k8sattributes, attributes/remove_pavol_username, batch]
           exporters:
             - debug
-#            - otlphttp/tempo
+            - otlphttp/tempo
         # Remove this section of Loki is not deployed
         logs:
           receivers: [otlp]
@@ -133,7 +143,7 @@ spec:
             - debug
 #            - otlphttp/loki
         metrics:
-          receivers: [otlp]
+          receivers: [otlp, prometheusremotewrite]
           processors: [memory_limiter, k8sattributes, batch]
           exporters:
             - debug
@@ -191,7 +201,7 @@ rules:
     verbs:
       - 'create'
 ---
-### RBAC for sending logs to Tempo
+### RBAC for sending traces to Tempo
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:

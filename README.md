@@ -24,6 +24,8 @@ kubectl apply -f metrics
 kubectl apply -f tracing
 ```
 
+The Jaeger UI is accessible via https://tempo-simplest-gateway-tempo-observability.apps-crc.testing/api/traces/v1/prod/search
+
 5. Install OpenTelemetry collector
 
 ```bash

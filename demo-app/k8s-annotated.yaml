@@ -1,3 +1,4 @@
+#  kubectl port-forward -n tutorial-application svc/frontend-service 4000:4000
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -19,7 +20,8 @@ metadata:
   name: otel
   namespace: tutorial-application
 spec:
-  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0
+  mode: deployment
+  upgradeStrategy: automatic
   observability:
     metrics:
       enableMetrics: true
@@ -60,7 +62,7 @@ spec:
       debug: {}
 
       otlp:
-        endpoint:  http://dev-collector.chainsaw-multitenancy.svc.cluster.local:4317
+        endpoint:  http://dev-collector.otel-observability.svc.cluster.local:4317
         tls:
           insecure: true
 
@@ -71,13 +73,12 @@ spec:
           development: true
           encoding: "json"
         metrics:
-          address: 0.0.0.0:8888
-#          readers:
-#            - pull:
-#                exporter:
-#                  prometheus:
-#                    host: '0.0.0.0'
-#                    port: 8889
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: '0.0.0.0'
+                    port: 8888
           level: detailed
       pipelines:
         # Remove this section if Tempo is not deployed

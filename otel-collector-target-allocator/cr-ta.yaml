@@ -1,0 +1,116 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-ta-targetallocator
+rules:
+  # For discovering targets
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/metrics
+      - services
+      - endpoints
+      - pods
+      - namespaces
+      - configmaps
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources:
+      - endpointslices
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+  # For PrometheusCR support
+  - apiGroups: ["monitoring.coreos.com"]
+    resources:
+      - servicemonitors
+      - podmonitors
+    verbs: ["*"]
+  # For API discovery
+  - nonResourceURLs:
+      - /metrics
+      - /api
+      - /api/*
+      - /apis
+      - /apis/*
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-ta-targetallocator
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector-ta-targetallocator
+    namespace: ploffay
+roleRef:
+  kind: ClusterRole
+  name: otel-collector-ta-targetallocator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-collector-ta
+spec:
+  mode: statefulset
+  targetAllocator:
+    enabled: true
+    prometheusCR:
+      enabled: true
+  config:
+    receivers:
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'otel-collector'
+              scrape_interval: 10s
+              static_configs:
+                - targets: ['0.0.0.0:8888']
+    processors:
+      batch: {}
+    exporters:
+      debug: {}
+    service:
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          processors: [batch]
+          exporters: [debug]
+---
+# required if feature gate in OTEL operator is enabled: --feature-gates=+operator.targetallocator.mtls
+# https://github.com/open-telemetry/opentelemetry-operator/tree/main/cmd/otel-allocator#service--pod-monitor-endpoint-credentials
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name:  opentelemetry-operator-controller-manager-cert-manager-role
+rules:
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - issuers
+      - certificaterequests
+      - certificates
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-ta-targetallocator-tls
+subjects:
+  - kind: ServiceAccount
+    name: opentelemetry-operator-controller-manager
+    namespace: opentelemetry-operator-system
+roleRef:
+  kind: ClusterRole
+  name: opentelemetry-operator-controller-manager-cert-manager-role
+  apiGroup: rbac.authorization.k8s.io
