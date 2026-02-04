@@ -1,0 +1,115 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel
+spec:
+#  image: registry.redhat.io/rhosdt/opentelemetry-collector-rhel8@sha256:aaf9bfbe6fcc0459ee1860d08dc832b666bf67af04e9d62300ce31c9177d74d3
+  volumeMounts:
+    - name: serving-certs
+      mountPath: /etc/serving-certs
+      readOnly: true
+  volumes:
+    - name: serving-certs
+      secret:
+        secretName: otel-collector-headless-tls
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+            tls:
+              cert_file: /etc/serving-certs/tls.crt
+              key_file: /etc/serving-certs/tls.key
+          http:
+            endpoint: 0.0.0.0:4318
+            tls:
+              cert_file: /etc/serving-certs/tls.crt
+              key_file: /etc/serving-certs/tls.key
+      zipkin:
+        tls:
+          cert_file: /etc/serving-certs/tls.crt
+          key_file: /etc/serving-certs/tls.key
+    processors:
+    exporters:
+      debug: {}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, zipkin]
+          exporters: [debug]
+        metrics:
+          receivers: [otlp]
+          exporters: [debug]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openshift-service-ca
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+data: {}
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: metrics-sender
+spec:
+  image: registry.redhat.io/rhosdt/opentelemetry-collector-rhel8@sha256:aaf9bfbe6fcc0459ee1860d08dc832b666bf67af04e9d62300ce31c9177d74d3
+  volumeMounts:
+    - name: openshift-service-ca
+      mountPath: /etc/pki/ca-trust/source/service-ca
+      readOnly: true
+  volumes:
+    - name: openshift-service-ca
+      configMap:
+        name: openshift-service-ca
+  config:
+    receivers:
+      hostmetrics:
+        collection_interval: 30s
+        scrapers:
+          cpu: {}
+          memory: {}
+          disk: {}
+    processors:
+      batch: {}
+    exporters:
+      otlp:
+        endpoint: otel-collector-headless.ploffay.svc.cluster.local:4317
+        tls:
+          # The exporter defaults to insecure false
+          # If TLS block is missing.
+          insecure: true
+          ca_file: /etc/pki/ca-trust/source/service-ca/service-ca.crt
+    service:
+      pipelines:
+        metrics:
+          receivers: [hostmetrics]
+          processors: [batch]
+          exporters: [otlp]
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otelko
+spec:
+  image: registry.redhat.io/rhosdt/opentelemetry-collector-rhel8@sha256:aaf9bfbe6fcc0459ee1860d08dc832b666bf67af04e9d62300ce31c9177d74d3
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+      zipkin: {}
+    processors:
+    exporters:
+      debug: {}
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp, zipkin]
+          exporters: [debug]
+        metrics:
+          receivers: [otlp]
+          exporters: [debug]
