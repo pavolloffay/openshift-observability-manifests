@@ -1,0 +1,43 @@
+---
+# NooBaa system - deploys the Multi-Cloud Gateway
+apiVersion: noobaa.io/v1alpha1
+kind: NooBaa
+metadata:
+  name: noobaa
+  namespace: openshift-storage
+spec:
+  dbResources:
+    requests:
+      cpu: "0.1"
+      memory: 1Gi
+  dbType: postgres
+  coreResources:
+    requests:
+      cpu: "0.1"
+      memory: 1Gi
+---
+## Default backing store using PVs
+#apiVersion: noobaa.io/v1alpha1
+#kind: BackingStore
+#metadata:
+#  name: noobaa-pv-backing-store
+#  namespace: openshift-storage
+#spec:
+#  type: pv-pool
+#  pvPool:
+#    numVolumes: 1
+#    resources:
+#      requests:
+#        storage: 50Gi
+#---
+## Bucket class using the backing store
+#apiVersion: noobaa.io/v1alpha1
+#kind: BucketClass
+#metadata:
+#  name: noobaa-default-bucket-class
+#  namespace: openshift-storage
+#spec:
+#  placementPolicy:
+#    tiers:
+#      - backingStores:
+#          - noobaa-pv-backing-store

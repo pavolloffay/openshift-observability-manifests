@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+# ObjectBucketClaim for tracing storage
+apiVersion: objectbucket.io/v1alpha1
+kind: ObjectBucketClaim
+metadata:
+  name: tracing-bucket
+  namespace: observability
+spec:
+  bucketName: tracing-bucket
+  storageClassName: openshift-storage.noobaa.io
+---

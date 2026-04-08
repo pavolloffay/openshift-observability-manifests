@@ -1,0 +1,43 @@
+# Step 1: Apply this file first to create the bucket and get credentials
+#   oc apply -f blog-post.yaml
+#
+# Step 2: Get the access key and update ACCESS_KEY_ID below:
+#   oc get secret tracing-bucket -n observability -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d
+#
+# Step 3: Re-apply to create the ObservabilityInstaller with the correct credentials
+#   oc apply -f blog-post.yaml
+---
+# ConfigMap to receive the OpenShift service CA
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openshift-service-ca
+  namespace: observability
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+data: {}
+---
+apiVersion: observability.openshift.io/v1alpha1
+kind: ObservabilityInstaller
+metadata:
+  name: tracing
+  namespace: observability
+spec:
+  capabilities:
+    tracing:
+      enabled: true
+      operators:
+        install: true
+      storage:
+        objectStorage:
+          s3:
+            endpoint: https://s3.openshift-storage.svc:443
+            bucket: tracing-bucket
+            accessKeyID: alpBATHU5yrA4oQJdwv3  # oc get secret tracing-bucket -n observability -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d
+            accessKeySecret:
+              name: tracing-bucket
+              key: AWS_SECRET_ACCESS_KEY
+          tls:
+            caConfigMap:
+              name: openshift-service-ca
+              key: service-ca.crt
