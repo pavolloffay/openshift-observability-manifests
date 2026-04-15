@@ -52,7 +52,7 @@ However, there is no automatic integration with OpenShift OAuth -- mapping OpenS
 | **Search by duration/percentiles** | Limited (TraceQL) | Native aggregations and percentile queries |
 | **Service map** | Grafana plugin (client-side) | Server-side computation via Data Prepper |
 | **Visualization** | Grafana (Tempo data source) | [Trace Analytics plugin](https://docs.opensearch.org/latest/observing-your-data/trace/ta-dashboards/) -- service maps, latency histograms, waterfall diagrams |
-| **Storage** | Object storage (S3/MinIO) | Block storage (PVCs) for hot data, object storage for cold tier |
+| **Storage** | Object storage (S3/MinIO) natively | Block storage (SSD PVCs), or remote store with S3 (see below) |
 | **Multi-tenancy** | Gateway + OIDC, tenant-scoped RBAC | Security plugin: silo (index-per-tenant), pool (document-level security), or hybrid |
 
 OpenSearch provides stronger ad-hoc trace search. Tempo is more storage-efficient for high-volume write-heavy workloads.
@@ -65,9 +65,27 @@ OpenSearch provides stronger ad-hoc trace search. Tempo is more storage-efficien
 | **Full-text search** | Slow for grep-style queries across large volumes | Fast arbitrary text search |
 | **Query language** | LogQL | OpenSearch DSL, SQL, PPL |
 | **Lifecycle management** | Simple retention config | [ISM policies](https://docs.opensearch.org/latest/im-plugin/ism/index/) -- rollover, hot/warm/cold tiers, force merge, deletion |
-| **Storage** | Object storage (S3/MinIO) | Block storage (PVCs) primary, object storage for snapshots/cold |
+| **Storage** | Object storage (S3/MinIO) natively | Block storage (SSD PVCs), or remote store with S3 (see below) |
 
 OpenSearch is significantly better for "needle in haystack" log queries. Loki is adequate when queries can be narrowed by labels first and uses far less storage.
+
+## Storage Architecture
+
+OpenSearch supports three storage models, each with different cost/performance trade-offs:
+
+| Model | Storage | Local disk role | Query latency | Best for |
+|---|---|---|---|---|
+| **All-hot (traditional)** | SSD PVCs only | Primary store | Lowest | Small deployments, latency-sensitive |
+| **Hot-warm-cold** | SSD (hot) + HDD (warm) + S3 snapshots (cold) | Primary store per tier | Low (hot/warm), high (cold) | Cost optimization with tiered retention |
+| **Remote store** | S3/MinIO as primary | Write buffer + LRU cache | Low (cached), higher (non-cached) | Large scale, object-storage-first |
+
+**Loki and Tempo** use object storage (S3/MinIO) as their **only** primary store from the start -- all data is written to S3 immediately, local disk is used only for WAL/cache. This is why they need so little RAM and local disk.
+
+**OpenSearch traditionally** requires block storage (SSD PVCs) as its primary store, with data replicated across nodes. This is why it needs significantly more RAM (filesystem cache) and local disk. The hot-warm-cold model reduces cost by using cheaper storage for older data but still keeps everything on local disk across tiers.
+
+**OpenSearch with remote store** (2.10+) closes this gap by adopting the same pattern as Loki/Tempo -- all segments and translog are pushed to S3 immediately, local disk is only a cache. This significantly reduces local storage requirements and allows replicas to pull from S3 instead of replicating from the primary. However, OpenSearch still builds a full inverted index on every field (unlike Loki/Tempo's minimal indexing), so the data stored on S3 is larger and queries on non-cached data download larger segments.
+
+The most common production pattern is **hot-warm with ISM policies** (7-14 days hot, rest warm, delete after 30-90 days). Remote store is AWS's recommended path for new managed deployments but adoption on self-managed clusters is still early.
 
 ## OpenShift Integration
 
@@ -140,6 +158,28 @@ Example for 500 GB/day with 15-day retention using hot-warm: 2 days hot (2,500 G
 The raw-trace and service-map pipelines must **buffer spans in memory** for a configurable window (default 30 seconds). This span buffering is why trace instances need more RAM (8 Gi vs 4 Gi).
 
 Data Prepper can also be **bypassed entirely** by using the OTel Collector's `opensearch` exporter to write spans directly to OpenSearch. This gives raw span storage and basic search, but loses trace-group enrichment (`traceGroup` field not populated, so filtering by root operation breaks) and service map generation. The Trace Analytics dashboards in OpenSearch will be partially broken without Data Prepper.
+
+#### Reducing RAM requirements
+
+The tables below use the standard 1:30 memory:data ratio, which assumes all fields are indexed and all data is on local disk. Several techniques can reduce RAM significantly:
+
+**Index mapping optimization** -- skip indexing fields you never search. Setting `index: false` on fields (e.g. raw message bodies, debug metadata) removes them from the inverted index, reducing heap by ~10-30%. Setting `enabled: false` on sub-objects skips parsing entirely. For traces with high-cardinality dynamic attributes, the [`flat_object`](https://docs.opensearch.org/latest/field-types/supported-field-types/flat-object/) field type (OpenSearch 2.7+) stores all dynamic key-value pairs as a single field instead of creating one field per key -- critical for reducing field mapping overhead.
+
+**Codec compression** -- using `best_compression` (zstd, OpenSearch 2.9+) reduces stored data ~30-40% vs default LZ4. Since RAM scales with stored data, this proportionally reduces memory needs.
+
+**Shard consolidation** -- each shard costs ~10-50 MB of heap overhead for segment metadata. Too many small shards (e.g. daily indices with low volume) waste heap. Target 10-50 GB per shard and force-merge old read-only indices to 1 segment per shard.
+
+**Remote-backed storage** -- OpenSearch 2.10+ supports [`remote_store`](https://docs.opensearch.org/latest/tuning-your-cluster/availability-and-recovery/remote-store/index/) with S3-compatible backends (MinIO, Ceph RGW, AWS S3) natively via the pre-installed `repository-s3` plugin. Unlike the hot-warm-cold architecture which migrates old data after some time, remote store pushes **all data to S3 immediately** -- every segment and translog entry is uploaded as soon as it's flushed. Local disk serves only as a write-ahead buffer and LRU cache:
+
+- **Writes**: primary node flushes segments locally, then immediately uploads to S3
+- **Replicas**: pull segments from S3 instead of copying from the primary over the network
+- **Queries on cached segments**: work normally via memory-mapped files, no extra latency
+- **Queries on non-cached segments**: segments are downloaded from S3 to local disk on demand, then memory-mapped and queried. The first query on cold data pays the S3 download cost; subsequent queries hit the local cache
+- **Cache eviction**: LRU -- when local disk fills up, least recently used segments are evicted. The `diskSize` in the CR controls cache size: larger = fewer S3 fetches = faster queries
+
+This is architecturally closer to how Loki and Tempo work -- they also write everything to object storage immediately with only a local WAL/cache. The key difference is that OpenSearch downloads full index segments (inverted index + stored fields + doc values) which are larger than Loki/Tempo's compressed chunks.
+
+The combination of selective field indexing + zstd compression + remote-backed storage can bring the effective ratio closer to 1:100, significantly narrowing the gap with Loki/Tempo. The trade-off is reduced query flexibility (unindexed fields can't be searched) and higher query latency on non-cached data.
 
 #### All-hot architecture (15 days retention, all data on SSD)
 
