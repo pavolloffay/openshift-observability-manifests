@@ -30,6 +30,28 @@ OpenSearch stores data in **indices** -- each index is a set of shards distribut
 
 **Shards:** Default is 1 primary shard + 1 replica per index. More primaries enable parallel writes across nodes; replicas improve read throughput and fault tolerance but double storage. Recommended shard size is 10-50 GB -- too many small shards increase cluster state overhead and memory pressure.
 
+### High cardinality
+
+OpenSearch handles high cardinality differently for **values** (many unique values in a field) vs **keys** (many unique field names).
+
+**High cardinality values** (e.g. `trace_id`, `user_id` with millions of unique values) -- filtering/search remains fast (O(log n) in the inverted index). However, aggregations (`terms`, `cardinality`) degrade past ~1M unique values because [global ordinals](https://docs.opensearch.org/latest/field-types/supported-field-types/keyword/) are loaded into heap (can consume hundreds of MB per field per shard).
+
+**High cardinality keys** (e.g. dynamic span attributes creating thousands of unique field names) -- this causes [mapping explosion](https://docs.opensearch.org/latest/mappings/mapping-explosion/). Every unique field name creates a mapping entry stored in cluster state on **every node's heap**. The default limit is 1,000 fields per index (`index.mapping.total_fields.limit`). Beyond ~10,000 fields, cluster state consumes GBs of heap.
+
+| Dimension | OK | Warning | Danger |
+|---|---|---|---|
+| Unique field names per index | <1,000 | 1,000-10,000 | >10,000 |
+| Unique values per field (filtering) | <100M | Rarely problematic | -- |
+| Unique values per field (aggregations) | <1M | 1M-10M | >10M |
+
+**Mitigations:**
+- [`flat_object`](https://docs.opensearch.org/latest/field-types/supported-field-types/flat-object/) field type for dynamic attributes (stores all key-value pairs as a single mapping entry) -- critical for trace span attributes
+- Explicit mappings with `index: false` on fields you don't search
+- `keyword` instead of `text` to avoid analyzer overhead
+- Disable `doc_values` on fields you never sort/aggregate
+
+For comparison, Loki limits label cardinality aggressively (<100K active streams). OpenSearch tolerates high-cardinality values much better but has a similar problem with high-cardinality keys at a higher threshold.
+
 ### Multi-tenancy
 
 OpenSearch provides multi-tenancy through the [security plugin](https://docs.opensearch.org/latest/security/multi-tenancy/tenant-index/) at two levels:
