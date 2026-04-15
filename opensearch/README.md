@@ -66,6 +66,37 @@ Unlike LokiStack/TempoStack which use an external gateway proxy (similar to [Obs
 
 However, there is no automatic integration with OpenShift OAuth -- mapping OpenShift users/groups to OpenSearch roles and tenants requires manual `roles_mapping.yml` configuration and is not managed by the operator. On OpenShift, a common pattern is to add an [oauth-proxy](https://github.com/openshift/oauth-proxy) sidecar in front of Dashboards for SSO, but this only handles authentication, not tenant-scoped data isolation.
 
+## Query Languages
+
+OpenSearch uses its own query languages (DSL, SQL, PPL) and does not support LogQL or TraceQL. Switching from Loki/Tempo requires rewriting all queries and dashboards. The OpenShift Console's built-in log and trace viewers (which use LogQL and the Tempo API) do not work with OpenSearch.
+
+### LogQL capabilities missing in OpenSearch
+
+- **Pipeline expressions** (`| json | line_format | label_format | unwrap`) -- LogQL chains parsers and transformations in a single query. OpenSearch requires fields to be extracted at ingest time or uses verbose painless scripts.
+- **Query-time parsers** (`| json`, `| logfmt`, `| pattern`, `| regexp`) -- extract fields from unstructured logs inline during query. OpenSearch has no equivalent; fields must be indexed at ingest.
+- **Metrics-over-logs** (`rate()`, `count_over_time()`, `bytes_over_time()`) -- compute time-series metrics directly from log streams. OpenSearch can approximate `count_over_time` with date histogram aggregations but has no native `rate()` producing per-second metrics.
+- **`unwrap`** -- promotes a label value to a metric sample. No OpenSearch equivalent.
+
+### OpenSearch capabilities missing in LogQL
+
+- **Fuzzy search** (`term~2`) and **proximity search** (`"word1 word2"~5`) -- approximate and distance-based matching
+- **Full-text relevance scoring** (BM25) -- LogQL is filter-based with no ranking
+- **Rich aggregation framework** -- percentiles, cardinality (HyperLogLog), significant terms, moving averages, cumulative sums. LogQL aggregations are limited to sum, avg, min, max, count, topk, quantile_over_time
+- **SQL/PPL** with JOINs, subqueries, CASE expressions
+
+### TraceQL capabilities missing in OpenSearch
+
+- **Structural span operators** (`>>` ancestor, `<<` descendant, `~` sibling) -- query parent-child relationships between spans within a trace. OpenSearch stores spans as flat documents; querying "span A is a parent of span B" requires application-level traversal of `parentSpanId`
+- **Spanset pipelines** (`{...} | select(...)`, `{...} | coalesce(...)`) -- filtering and combining sets of spans within a trace
+- **Trace-level aggregations** (`count()`, `avg()`, `max()` across spans within a single trace) -- e.g. "find traces with more than 10 spans". OpenSearch requires scripted aggregations grouped by traceId
+- **`&&` combining spansets** -- requiring different spans within the same trace to satisfy different conditions. Fundamentally different from boolean AND on a single document
+
+### OpenSearch capabilities missing in TraceQL
+
+- **Full-text search** across span attributes with relevance scoring
+- **Cross-trace analytics** -- aggregations across all traces (e.g. p99 latency for a service over time). TraceQL finds individual traces but does not compute fleet-wide aggregations
+- **Ad-hoc SQL/PPL** queries with JOINs across trace and log indices
+
 ## Tracing (replacing Tempo)
 
 | Capability | Tempo | OpenSearch |
