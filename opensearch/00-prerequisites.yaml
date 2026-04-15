@@ -1,0 +1,26 @@
+# Prerequisites for running OpenSearch on OpenShift.
+#
+# 1. Install the operator first: ./opensearch/00-install-operator.sh
+# 2. Apply this file to set vm.max_map_count on worker nodes.
+#
+# OpenSearch requires vm.max_map_count=262144 on all worker nodes.
+# The OpenSearchCluster CR uses setVMMaxMapCount: false to avoid running
+# init containers as root. Instead, apply this MachineConfig to set the
+# kernel parameter at the node level (triggers a rolling reboot of workers).
+---
+apiVersion: machineconfiguration.openshift.io/v1
+kind: MachineConfig
+metadata:
+  name: 99-worker-sysctl-vm-max-map-count
+  labels:
+    machineconfiguration.openshift.io/role: worker
+spec:
+  config:
+    ignition:
+      version: 3.2.0
+    storage:
+      files:
+        - path: /etc/sysctl.d/99-opensearch.conf
+          mode: 0644
+          contents:
+            source: data:,vm.max_map_count%3D262144%0A

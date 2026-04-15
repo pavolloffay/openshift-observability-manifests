@@ -1,0 +1,180 @@
+# OpenSearch cluster with 3 dedicated masters + 3 data nodes.
+# Requires the opensearch-k8s-operator installed via Helm (see 00-install-operator.sh).
+# Adjust storageClassName to match your cluster (e.g. gp3-csi, managed-premium).
+#
+# Security is disabled for demo purposes. For production, enable security
+# with TLS and configure the adminSecret and securityconfig properly.
+#
+# The operator's init containers run as root (UID 0) for filesystem permissions setup.
+# On OpenShift this requires granting the anyuid SCC to the default service account.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opensearch
+---
+# Grant anyuid SCC so the operator's init containers can run as root.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: opensearch-anyuid
+  namespace: opensearch
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: opensearch
+---
+apiVersion: opensearch.org/v1
+kind: OpenSearchCluster
+metadata:
+  name: opensearch
+  namespace: opensearch
+spec:
+  general:
+    version: 2.19.1
+    httpPort: 9200
+    serviceName: opensearch
+    # Disable the init container that runs sysctl as root.
+    # vm.max_map_count is set via MachineConfig instead (see 00-prerequisites.yaml).
+    setVMMaxMapCount: false
+    # opensearch-observability plugin is pre-installed in the default image
+    additionalConfig:
+      plugins.security.disabled: "true"
+  dashboards:
+    enable: true
+    version: 2.19.1
+    replicas: 1
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "100m"
+      limits:
+        memory: "1Gi"
+        cpu: "250m"
+    additionalConfig:
+      opensearch.hosts: '["http://opensearch.opensearch.svc.cluster.local:9200"]'
+  nodePools:
+    - component: masters
+      replicas: 3
+      diskSize: "10Gi"
+      roles:
+        - "cluster_manager"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "250m"
+        limits:
+          memory: "1Gi"
+          cpu: "500m"
+      jvm: "-Xms512m -Xmx512m"
+      persistence:
+        pvc:
+          storageClass: gp3-csi
+          accessModes:
+            - ReadWriteOnce
+    - component: data
+      replicas: 3
+      diskSize: "20Gi"
+      roles:
+        - "data"
+        - "ingest"
+      resources:
+        requests:
+          memory: "1Gi"
+          cpu: "250m"
+        limits:
+          memory: "1Gi"
+          cpu: "500m"
+      jvm: "-Xms512m -Xmx512m"
+      persistence:
+        pvc:
+          storageClass: gp3-csi
+          accessModes:
+            - ReadWriteOnce
+---
+# ISM (Index State Management) policies for automatic index retention.
+# ISM runs as a built-in background job inside OpenSearch (every 5 minutes).
+# The operator reconciles these CRs into OpenSearch automatically.
+# Retention: 15 days for all observability indices.
+---
+apiVersion: opensearch.org/v1
+kind: OpenSearchISMPolicy
+metadata:
+  name: traces-policy
+  namespace: opensearch
+spec:
+  opensearchCluster:
+    name: opensearch
+  description: "Trace span index lifecycle: rollover daily or at 30GB, delete after 15 days"
+  defaultState: hot
+  ismTemplate:
+    indexPatterns:
+        - "otel-v1-apm-span-*"
+    priority: 100
+  states:
+    - name: hot
+      actions:
+        - rollover:
+            minIndexAge: "1d"
+            minPrimaryShardSize: "30gb"
+      transitions:
+        - stateName: delete
+          conditions:
+            minIndexAge: "15d"
+    - name: delete
+      actions:
+        - delete: {}
+---
+apiVersion: opensearch.org/v1
+kind: OpenSearchISMPolicy
+metadata:
+  name: logs-policy
+  namespace: opensearch
+spec:
+  opensearchCluster:
+    name: opensearch
+  description: "Log index lifecycle: delete after 15 days"
+  defaultState: hot
+  ismTemplate:
+    indexPatterns:
+        - "otel-v1-logs-*"
+    priority: 100
+  states:
+    - name: hot
+      actions: []
+      transitions:
+        - stateName: delete
+          conditions:
+            minIndexAge: "15d"
+    - name: delete
+      actions:
+        - delete: {}
+---
+apiVersion: opensearch.org/v1
+kind: OpenSearchISMPolicy
+metadata:
+  name: service-map-policy
+  namespace: opensearch
+spec:
+  opensearchCluster:
+    name: opensearch
+  description: "Service map index lifecycle: delete after 15 days"
+  defaultState: hot
+  ismTemplate:
+    indexPatterns:
+        - "otel-v1-apm-service-map*"
+    priority: 100
+  states:
+    - name: hot
+      actions: []
+      transitions:
+        - stateName: delete
+          conditions:
+            minIndexAge: "15d"
+    - name: delete
+      actions:
+        - delete: {}

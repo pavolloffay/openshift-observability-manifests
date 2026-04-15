@@ -15,6 +15,35 @@ OTel Collector --OTLP--> Data Prepper ---> OpenSearch
 
 Alternatively, the OTel Collector `opensearch` exporter (contrib) can write directly to OpenSearch, bypassing Data Prepper -- but loses service map computation and span correlation.
 
+### How indexing works
+
+OpenSearch stores data in **indices** -- each index is a set of shards distributed across data nodes, with a full inverted index on every field. This is fundamentally different from Loki (label index + compressed chunks on object storage) and Tempo (block index + bloom filters on object storage). The full inverted index enables arbitrary field queries but costs ~1.5-2x raw data size in storage (vs ~0.3-0.5x for Loki/Tempo with compression).
+
+**Default indices created by Data Prepper:**
+- `otel-v1-apm-span-*` -- enriched trace spans (one document per span)
+- `otel-v1-apm-service-map` -- service dependency graph
+- Log index name is configurable (e.g. `otel-v1-logs-YYYY.MM.dd`)
+
+**Index rotation:** OpenSearch does not rotate indices automatically. By default, Data Prepper writes to a single index that grows indefinitely -- this is problematic because OpenSearch can only delete entire indices, not individual documents by age. A single unbounded index also grows shards beyond the recommended 10-50 GB limit, degrading search performance and increasing recovery time. The standard pattern is time-based indices (e.g. `otel-v1-apm-span-2026.04.15`) so old data can be removed by simply dropping old indices. This requires explicit configuration -- either a date pattern in the Data Prepper sink config or an [ISM rollover policy](https://docs.opensearch.org/latest/im-plugin/ism/index/). Rollover can be triggered by age (e.g. 1 day), size (e.g. 30 GB), or document count.
+
+**Retention:** Managed via [ISM policies](https://docs.opensearch.org/latest/im-plugin/ism/index/) that transition indices through states: `hot` (active writes/queries) -> `delete` (after `min_index_age`). ISM is a built-in OpenSearch plugin (`opensearch-index-management`) -- it runs as a background job inside the cluster (default every 5 minutes), checking each managed index against its policy. No external cron or Data Prepper involvement needed. Policies are attached to indices via index pattern templates. Without an ISM policy, old indices are never deleted. This contrasts with Loki/Tempo where retention is a simple declarative field in the CR.
+
+**Shards:** Default is 1 primary shard + 1 replica per index. More primaries enable parallel writes across nodes; replicas improve read throughput and fault tolerance but double storage. Recommended shard size is 10-50 GB -- too many small shards increase cluster state overhead and memory pressure.
+
+### Multi-tenancy
+
+OpenSearch provides multi-tenancy through the [security plugin](https://docs.opensearch.org/latest/security/multi-tenancy/tenant-index/) at two levels:
+
+- **Dashboards tenancy** -- global, private, and custom tenants control which saved objects (dashboards, visualizations, index patterns) users see. This is UI-level isolation only, not data isolation.
+- **Data isolation** requires one of three models, all configured manually:
+  - **Silo model** -- separate index per tenant (e.g. `otel-v1-logs-tenant-a-*`, `otel-v1-logs-tenant-b-*`). Full isolation, but requires configuring Data Prepper to route documents to tenant-specific indices (e.g. via the routing processor using a field like `k8s.namespace.name`). A single Data Prepper deployment can handle this.
+  - **Pool model** -- shared index with [document-level security (DLS)](https://docs.opensearch.org/latest/security/access-control/document-level-security/) rules filtering documents by a tenant field. Simpler operationally but requires every document to carry a tenant identifier.
+  - **Hybrid** -- combination of silo for large tenants and pool for smaller ones.
+
+Unlike LokiStack/TempoStack which use an external gateway proxy (similar to [Observatorium API](https://github.com/observatorium/api/)) for authentication and tenant enforcement, OpenSearch internalizes this via the Security plugin -- no separate proxy component exists or is needed. The Security plugin supports [OIDC natively](https://docs.opensearch.org/latest/security/authentication-backends/openid-connect/): it validates JWTs, maps OIDC claims to OpenSearch roles/tenants via `roles_key` and `subject_key`, and enforces index-level and document-level permissions. OpenSearch Dashboards also supports [OIDC sign-in](https://docs.opensearch.org/latest/security/configuration/multi-auth/) with multi-tenancy.
+
+However, there is no automatic integration with OpenShift OAuth -- mapping OpenShift users/groups to OpenSearch roles and tenants requires manual `roles_mapping.yml` configuration and is not managed by the operator. On OpenShift, a common pattern is to add an [oauth-proxy](https://github.com/openshift/oauth-proxy) sidecar in front of Dashboards for SSO, but this only handles authentication, not tenant-scoped data isolation.
+
 ## Tracing (replacing Tempo)
 
 | Capability | Tempo | OpenSearch |
@@ -88,6 +117,16 @@ OpenSearch resources are the same whether indexing logs or traces -- the cluster
 
 **RAM (data nodes):** The industry-standard guideline is a **1:30 memory-to-stored-data ratio** for hot-tier nodes ([AWS sizing guide](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/sizing-domains.html), [Elastic sizing blog](https://www.elastic.co/blog/benchmarking-and-sizing-your-elasticsearch-cluster-for-logs-and-metrics), [Opster capacity planning](https://opster.com/guides/opensearch/opensearch-capacity-planning/memory-usage/)). This means 30 GB of stored data requires 1 GB of RAM. The RAM is split roughly 50/50: half goes to the JVM heap (capped at 31.5 GB for compressed OOPs) for indexing buffers, field data caches, query caches, and segment metadata; the other half is left for the OS filesystem cache which keeps frequently accessed index segments in memory for fast reads. Example for 500 GB/day: `18,750 GB / 30 = 625 Gi` total RAM needed, divided by 64 GB per node = `625 / 64 ≈ 10 data nodes`.
 
+The tables below use the 1:30 ratio for all data, which represents an **all-hot architecture** (worst case). A **hot-warm-cold architecture** can significantly reduce costs by keeping only recent data (e.g. 2-3 days) on expensive hot nodes and migrating older data to cheaper tiers:
+
+| Tier | Memory:data ratio | Storage type | Use case |
+|------|-------------------|-------------|----------|
+| **Hot** | 1:30 | SSD | Recent data, active indexing + frequent queries |
+| **Warm** | 1:160 | HDD or cheaper SSD | Older data, read-only, infrequent queries |
+| **Cold** | minimal | Object storage (S3) via searchable snapshots | Archive, rare queries, high latency acceptable |
+
+Example for 500 GB/day with 15-day retention using hot-warm: 2 days hot (2,500 GB at 1:30 = 83 Gi) + 13 days warm (16,250 GB at 1:160 = 102 Gi) = **185 Gi total** vs 625 Gi all-hot. This is a ~3.4x reduction in RAM but adds operational complexity ([ISM policies](https://docs.opensearch.org/latest/im-plugin/ism/index/) to automate index migration between tiers) and slower queries on older data.
+
 **CPU (data nodes):** Driven by indexing throughput and search concurrency. Each vCPU handles roughly 5-10 MB/s of indexing throughput depending on mapping complexity. At 500 GB/day (~5.8 MB/s average, but peak can be 2-3x), 10 nodes with 8 CPUs each provides headroom for burst traffic and concurrent search queries. At 2 TB/day (~23 MB/s average), 40 nodes x 8 CPUs handles ~16 MB/s indexing capacity per node plus search load.
 
 **Dedicated master nodes:** Recommended for all production clusters ([AWS best practices](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/managedomains-dedicatedmasternodes.html)). Masters manage cluster state (shard allocation, index metadata, node membership) and do not hold data. Combining master and data roles on the same nodes is a common cost optimization for very small clusters (3 nodes), but is not recommended for production because data node operations -- heavy indexing, long GC pauses, expensive queries -- can starve the master role and cause cluster instability (missed heartbeats, shard allocation delays, split-brain risk). Sized at 2-4 CPU / 8-16 GB depending on cluster size.
@@ -101,6 +140,8 @@ OpenSearch resources are the same whether indexing logs or traces -- the cluster
 The raw-trace and service-map pipelines must **buffer spans in memory** for a configurable window (default 30 seconds). This span buffering is why trace instances need more RAM (8 Gi vs 4 Gi).
 
 Data Prepper can also be **bypassed entirely** by using the OTel Collector's `opensearch` exporter to write spans directly to OpenSearch. This gives raw span storage and basic search, but loses trace-group enrichment (`traceGroup` field not populated, so filtering by root operation breaks) and service map generation. The Trace Analytics dashboards in OpenSearch will be partially broken without Data Prepper.
+
+#### All-hot architecture (15 days retention, all data on SSD)
 
 | | pico (50 GB/day) | extra-small (100 GB/day) | small (500 GB/day) | medium (2 TB/day) |
 |---|---|---|---|---|
@@ -116,6 +157,27 @@ Data Prepper can also be **bypassed entirely** by using the OTel Collector's `op
 | **Disk (SSD PVCs)** | 1.9 TB | 3.75 TB | 18.75 TB | 75 TB |
 
 The memory range reflects Data Prepper: lower bound is for log pipelines (4 Gi/instance), upper bound is for trace pipelines (8 Gi/instance). The OpenSearch cluster itself is identical in both cases.
+
+#### Alternative: hot-warm architecture (3 days hot + 12 days warm)
+
+Hot nodes (1:30 ratio, SSD) hold the most recent 3 days for active indexing and frequent queries. Warm nodes (1:160 ratio, HDD) hold the remaining 12 days as read-only data with slower query performance. [ISM policies](https://docs.opensearch.org/latest/im-plugin/ism/index/) automate index migration between tiers.
+
+| | pico (50 GB/day) | extra-small (100 GB/day) | small (500 GB/day) | medium (2 TB/day) |
+|---|---|---|---|---|
+| **Hot stored (3d)** | 375 GB | 750 GB | 3.75 TB | 15 TB |
+| **Hot RAM (1:30)** | 12.5 Gi | 25 Gi | 125 Gi | 500 Gi |
+| **Hot nodes** | 3x (2 CPU, 8 GB, SSD) | 3x (4 CPU, 16 GB, SSD) | 3x (8 CPU, 64 GB, SSD) | 8x (8 CPU, 64 GB, SSD) |
+| **Warm stored (12d)** | 1.5 TB | 3 TB | 15 TB | 60 TB |
+| **Warm RAM (1:160)** | 9.4 Gi | 18.75 Gi | 93.75 Gi | 375 Gi |
+| **Warm nodes** | 3x (2 CPU, 8 GB, HDD) | 3x (2 CPU, 8 GB, HDD) | 3x (4 CPU, 32 GB, HDD) | 6x (4 CPU, 64 GB, HDD) |
+| **Dedicated masters** | 3x (2 CPU, 8 GB) | 3x (2 CPU, 8 GB) | 3x (2 CPU, 8 GB) | 3x (4 CPU, 16 GB) |
+| **Data Prepper** | 1x (2 CPU, 4-8 GB) | 2x (2 CPU, 4-8 GB) | 4x (2 CPU, 8 GB) | 8x (2 CPU, 8 GB) |
+| **Total CPU** | 20 vCPUs | 28 vCPUs | 50 vCPUs | 116 vCPUs |
+| **Total memory** | 76-80 Gi | 104-112 Gi | 344 Gi | 1,008 Gi |
+| **SSD disk** | 375 GB | 750 GB | 3.75 TB | 15 TB |
+| **HDD disk** | 1.5 TB | 3 TB | 15 TB | 60 TB |
+
+Compared to all-hot, hot-warm reduces total RAM by **~40-60%** and replaces most SSD with cheaper HDD. The trade-off is slower queries on data older than 3 days and added operational complexity from ISM index lifecycle policies.
 
 ### Side-by-Side: OpenSearch vs LokiStack (logs only, same ingestion rate)
 
@@ -140,9 +202,9 @@ OpenSearch memory estimates are based on the industry-standard [1:30 memory-to-s
 
 ## Log-Trace Correlation
 
-OpenSearch can correlate logs and traces by indexing the `trace_id` field in both log and span documents, then joining in Dashboards. However, this only works if OpenSearch receives **both** logs and traces -- if it replaces only one of LokiStack or TempoStack, correlation must still go through Grafana cross-linking with the other system. Using OpenSearch for both data types doubles the resource requirements shown above.
+OpenSearch can correlate logs and traces by indexing the `trace_id` field in both log and span documents, then joining in Dashboards. However, this only works if OpenSearch receives **both** logs and traces. If it replaces only one backend, there is no built-in cross-linking between OpenSearch Dashboards and Grafana -- you would have to manually copy the trace ID and search in both UIs separately. Using OpenSearch for both data types doubles the resource requirements shown above.
 
-In the Grafana stack (current setup), Tempo and Loki provide native cross-linking via data source configuration with zero custom indexing.
+In the Grafana stack (current setup), Tempo and Loki provide native cross-linking via data source configuration -- clicking a trace ID in Loki jumps to the trace in Tempo and vice versa, with zero custom indexing.
 
 ## Verdict
 
@@ -150,7 +212,6 @@ In the Grafana stack (current setup), Tempo and Loki provide native cross-linkin
 |---|---|---|
 | **Search power** | Label-based (Loki), TraceQL (Tempo) | Full-text search on everything |
 | **Resource cost** | Low (object-storage-native) | High (JVM + block storage) |
-| **Red Hat support** | Fully supported, operators provided | Not supported |
 | **Operational complexity** | Managed by Red Hat operators | JVM tuning, shard management, capacity planning |
 | **Strategic direction** | Aligned with Red Hat (LGTM stack) | Goes against Red Hat's direction |
 | **Single backend** | Two separate systems | One system for logs + traces |
@@ -159,6 +220,53 @@ In the Grafana stack (current setup), Tempo and Loki provide native cross-linkin
 **OpenSearch makes sense when:** full-text search across logs and traces is a hard requirement, the team has Elasticsearch/OpenSearch expertise, and Red Hat support is not needed.
 
 **Loki + Tempo is better when:** cost efficiency, Red Hat support, and alignment with the OpenShift platform strategy matter more than raw search capability.
+
+## Deploy
+
+1. Install the opensearch-k8s-operator via Helm (not available in OperatorHub):
+
+```bash
+./opensearch/00-install-operator.sh
+```
+
+2. Set `vm.max_map_count` on worker nodes (triggers a rolling reboot of workers):
+
+```bash
+kubectl apply -f opensearch/00-prerequisites.yaml
+```
+
+3. Deploy OpenSearch cluster (includes ISM retention policies) + Data Prepper:
+
+```bash
+kubectl apply -f opensearch/01-deploy-opensearch.yaml
+kubectl apply -f opensearch/02-deploy-data-prepper.yaml
+```
+
+### Forward data from OTel Collector
+
+Add to the OTel Collector config to send traces and logs to Data Prepper:
+
+```yaml
+exporters:
+  otlp/opensearch:
+    endpoint: data-prepper.opensearch.svc.cluster.local:21890
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/opensearch]
+    logs:
+      exporters: [otlp/opensearch]
+```
+
+### Access OpenSearch Dashboards
+
+```bash
+oc port-forward svc/opensearch-dashboards 5601:5601 -n opensearch
+# Open http://localhost:5601 -- login with admin/admin
+```
 
 ## References
 * [LokiStack sizing -- Red Hat OpenShift Logging 6.5](https://docs.redhat.com/en/documentation/red_hat_openshift_logging/6.5/html/configuring_logging/configuring-lokistack-storage#loki-sizing_configuring-the-log-store)

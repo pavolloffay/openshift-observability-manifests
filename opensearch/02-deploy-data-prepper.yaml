@@ -1,0 +1,170 @@
+# Data Prepper -- ingestion pipeline for OpenSearch.
+# Accepts OTLP traces and logs, writes to OpenSearch.
+# Data Prepper has no operator/CRD, deployed as a regular Deployment.
+# Runs as non-root, works with the default restricted SCC on OpenShift.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-prepper-config
+  namespace: opensearch
+data:
+  data-prepper-config.yaml: |
+    ssl: false
+    serverPort: 4900
+    # Peer forwarder for trace aggregation in multi-replica deployments.
+    # Routes spans with the same traceID to the same Data Prepper instance.
+    peer_forwarder:
+      discovery_mode: dns
+      domain_name: "data-prepper-headless.opensearch.svc.cluster.local"
+
+  pipelines.yaml: |
+    # ---------------------------------------------------------------
+    # TRACE PIPELINES
+    # 3 chained pipelines:
+    #   entry-pipeline -> raw-trace-pipeline (span enrichment + indexing)
+    #   entry-pipeline -> service-map-pipeline (service dependency graph)
+    # ---------------------------------------------------------------
+    entry-pipeline:
+      source:
+        otel_trace_source:
+          ssl: false
+      processor:
+        - trace_peer_forwarder:
+      sink:
+        - pipeline:
+            name: "raw-trace-pipeline"
+        - pipeline:
+            name: "service-map-pipeline"
+
+    raw-trace-pipeline:
+      source:
+        pipeline:
+          name: "entry-pipeline"
+      processor:
+        - otel_traces:
+            trace_flush_interval: "30s"
+      sink:
+        - opensearch:
+            hosts: ["http://opensearch.opensearch.svc.cluster.local:9200"]
+            insecure: true
+            index_type: trace-analytics-raw
+
+    service-map-pipeline:
+      source:
+        pipeline:
+          name: "entry-pipeline"
+      processor:
+        - service_map:
+            window_duration: "180s"
+      sink:
+        - opensearch:
+            hosts: ["http://opensearch.opensearch.svc.cluster.local:9200"]
+            insecure: true
+            index_type: trace-analytics-service-map
+
+    # ---------------------------------------------------------------
+    # LOG PIPELINE
+    # Accepts OTLP logs and writes to OpenSearch.
+    # ---------------------------------------------------------------
+    log-pipeline:
+      source:
+        otel_logs_source:
+          ssl: false
+      sink:
+        - opensearch:
+            hosts: ["http://opensearch.opensearch.svc.cluster.local:9200"]
+            insecure: true
+            index: "otel-v1-logs-%{yyyy.MM.dd}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-prepper
+  namespace: opensearch
+  labels:
+    app: data-prepper
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-prepper
+  template:
+    metadata:
+      labels:
+        app: data-prepper
+    spec:
+      containers:
+        - name: data-prepper
+          image: opensearchproject/data-prepper:2.11.0
+          ports:
+            - containerPort: 21890
+              name: otlp-traces
+            - containerPort: 21892
+              name: otlp-logs
+            - containerPort: 4900
+              name: server
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/data-prepper/config/data-prepper-config.yaml
+              subPath: data-prepper-config.yaml
+            - name: config
+              mountPath: /usr/share/data-prepper/pipelines/pipelines.yaml
+              subPath: pipelines.yaml
+          readinessProbe:
+            httpGet:
+              path: /list
+              port: 4900
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /list
+              port: 4900
+            initialDelaySeconds: 30
+            periodSeconds: 15
+      volumes:
+        - name: config
+          configMap:
+            name: data-prepper-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-prepper
+  namespace: opensearch
+spec:
+  selector:
+    app: data-prepper
+  ports:
+    - name: otlp-traces
+      port: 21890
+      targetPort: 21890
+    - name: otlp-logs
+      port: 21892
+      targetPort: 21892
+    - name: server
+      port: 4900
+      targetPort: 4900
+---
+# Headless service for peer forwarder (trace aggregation across replicas)
+apiVersion: v1
+kind: Service
+metadata:
+  name: data-prepper-headless
+  namespace: opensearch
+spec:
+  clusterIP: None
+  selector:
+    app: data-prepper
+  ports:
+    - name: peer-forwarder
+      port: 4994
+      targetPort: 4994
