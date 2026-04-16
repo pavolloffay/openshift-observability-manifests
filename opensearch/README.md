@@ -295,9 +295,20 @@ OpenSearch memory estimates are based on the industry-standard [1:30 memory-to-s
 
 ## Log-Trace Correlation
 
-OpenSearch can correlate logs and traces by indexing the `trace_id` field in both log and span documents, then joining in Dashboards. However, this only works if OpenSearch receives **both** logs and traces. If it replaces only one backend, there is no built-in cross-linking between OpenSearch Dashboards and Grafana -- you would have to manually copy the trace ID and search in both UIs separately. Using OpenSearch for both data types doubles the resource requirements shown above.
+Log-trace correlation means navigating from a log line to the trace that produced it (or vice versa) using the `trace_id` field that both log and span documents share.
 
-In the Grafana stack (current setup), Tempo and Loki provide native cross-linking via data source configuration -- clicking a trace ID in Loki jumps to the trace in Tempo and vice versa, with zero custom indexing.
+**Without indexing `trace_id`** (or in separate systems), correlation is a manual process: you see a trace ID in a log line, copy it, paste it into the trace UI, and search. This works but is slow and error-prone.
+
+**OpenSearch with both logs and traces indexed:** Since both log documents (`otel-v1-logs-*`) and span documents (`otel-v1-apm-span-*`) live in the same cluster with `trace_id` as an indexed keyword field, you can:
+- Query across both index patterns in a single search: find all logs and spans sharing a `trace_id`
+- Build Dashboards visualizations that link log entries to trace waterfall views
+- Use the Trace Analytics plugin's "Related Logs" feature to show logs alongside spans
+
+The key advantage over manual lookup is that `trace_id` is a **searchable indexed field** in both indices -- the inverted index makes the lookup O(log n) instead of a full scan. You can also aggregate: "show me all trace IDs where both an error log and a failed span exist."
+
+However, this only works if OpenSearch receives **both** logs and traces. If it replaces only one backend, there is no built-in cross-linking between OpenSearch Dashboards and Grafana -- you would have to manually copy the trace ID and search in both UIs separately. Using OpenSearch for both data types doubles the resource requirements shown above.
+
+**In the Grafana stack (current setup)**, Tempo and Loki provide native cross-linking via data source configuration -- clicking a trace ID in Loki jumps to the trace in Tempo and vice versa, with zero custom indexing. This works because Grafana understands both data sources and builds clickable links automatically. The `trace_id` field doesn't even need to be indexed in Loki (it's just a label); Tempo looks up traces by ID natively.
 
 ## Verdict
 
