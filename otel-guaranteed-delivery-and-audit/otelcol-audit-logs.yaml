@@ -1,0 +1,127 @@
+# Requires self-managed OpenShift (IPI/UPI) with master nodes in the cluster.
+# Does not work on ROSA/HyperShift where the control plane is managed externally.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otel-observability
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-audit-logs-scc-privileged
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:privileged
+subjects:
+  - kind: ServiceAccount
+    name: otel-audit-logs-collector
+    namespace: otel-observability
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-audit-logs
+  namespace: otel-observability
+spec:
+  mode: daemonset
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+    privileged: true
+  volumeMounts:
+    - name: file-storage
+      mountPath: /var/lib/otelcol/file_storage
+    - name: kube-apiserver-audit
+      mountPath: /var/log/kube-apiserver
+      readOnly: true
+    - name: openshift-apiserver-audit
+      mountPath: /var/log/openshift-apiserver
+      readOnly: true
+    - name: oauth-apiserver-audit
+      mountPath: /var/log/oauth-apiserver
+      readOnly: true
+    - name: oauth-server-audit
+      mountPath: /var/log/oauth-server
+      readOnly: true
+    - name: auditd
+      mountPath: /var/log/audit
+      readOnly: true
+    - name: ovn-audit
+      mountPath: /var/log/ovn
+      readOnly: true
+  volumes:
+    - name: file-storage
+      hostPath:
+        path: /var/lib/otelcol/file_storage
+        type: DirectoryOrCreate
+    - name: kube-apiserver-audit
+      hostPath:
+        path: /var/log/kube-apiserver
+        type: Directory
+    - name: openshift-apiserver-audit
+      hostPath:
+        path: /var/log/openshift-apiserver
+        type: Directory
+    - name: oauth-apiserver-audit
+      hostPath:
+        path: /var/log/oauth-apiserver
+        type: Directory
+    - name: oauth-server-audit
+      hostPath:
+        path: /var/log/oauth-server
+        type: Directory
+    - name: auditd
+      hostPath:
+        path: /var/log/audit
+        type: Directory
+    - name: ovn-audit
+      hostPath:
+        path: /var/log/ovn
+        type: Directory
+  nodeSelector:
+    node-role.kubernetes.io/master: ""
+  tolerations:
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  config:
+    extensions:
+      file_storage/persistent_queue:
+        directory: /var/lib/otelcol/file_storage
+        timeout: 10s
+        compaction:
+          on_rebound: true
+          directory: /var/lib/otelcol/file_storage
+    receivers:
+      filelog:
+        include:
+          - /var/log/kube-apiserver/audit.log
+          - /var/log/openshift-apiserver/audit.log
+          - /var/log/oauth-apiserver/audit.log
+          - /var/log/oauth-server/audit.log
+          - /var/log/audit/audit.log
+          - /var/log/ovn/acl-audit-log.log
+        start_at: beginning
+        storage: file_storage/persistent_queue
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 25
+      batch: {}
+
+    exporters:
+      debug: {}
+
+    service:
+      extensions: [file_storage/persistent_queue]
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, batch]
+          exporters: [debug]

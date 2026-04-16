@@ -1,0 +1,71 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-guaranteed
+  namespace: otel-observability
+spec:
+  mode: statefulset
+  replicas: 1
+  volumeClaimTemplates:
+    - metadata:
+        name: file-storage
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+  volumeMounts:
+    - name: file-storage
+      mountPath: /var/lib/otelcol/file_storage
+  config:
+    extensions:
+      file_storage/persistent_queue:
+        directory: /var/lib/otelcol/file_storage
+        timeout: 10s
+        compaction:
+          on_rebound: true
+          directory: /var/lib/otelcol/file_storage
+      bearertokenauth:
+        filename: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 75
+        spike_limit_percentage: 25
+      batch: {}
+
+    exporters:
+      debug: {}
+
+      otlphttp/tempo:
+        endpoint: http://tempo-simplest-distributor.tempo-observability.svc.cluster.local:4318
+        tls:
+          insecure: false
+          ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+        auth:
+          authenticator: bearertokenauth
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        sending_queue:
+          enabled: true
+          num_consumers: 10
+          queue_size: 10000
+          storage: file_storage/persistent_queue
+
+    service:
+      extensions: [bearertokenauth, file_storage/persistent_queue]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [debug, otlphttp/tempo]
