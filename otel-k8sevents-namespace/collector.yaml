@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      containers:
+        - name: nginx
+          image: nginxinc/nginx-unprivileged:latest
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-k8sevents
+  namespace: demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-k8sevents
+  namespace: demo
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-k8sevents
+  namespace: demo
+subjects:
+  - kind: ServiceAccount
+    name: otel-k8sevents
+    namespace: demo
+roleRef:
+  kind: Role
+  name: otel-k8sevents
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: otel-k8sevents
+  namespace: openshift-marketplace
+rules:
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: otel-k8sevents
+  namespace: openshift-marketplace
+subjects:
+  - kind: ServiceAccount
+    name: otel-k8sevents
+    namespace: demo
+roleRef:
+  kind: Role
+  name: otel-k8sevents
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel-k8sevents
+  namespace: demo
+spec:
+  mode: deployment
+  serviceAccount: otel-k8sevents
+  config:
+    receivers:
+      k8s_events:
+        namespaces: [demo, openshift-marketplace]
+
+    exporters:
+      debug:
+        verbosity: detailed
+
+    service:
+      pipelines:
+        logs:
+          receivers: [k8s_events]
+          exporters: [debug]

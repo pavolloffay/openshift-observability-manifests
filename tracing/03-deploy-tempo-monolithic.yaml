@@ -1,0 +1,22 @@
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoMonolithic
+metadata:
+  name: mono
+  namespace: tempo-observability
+spec:
+  storage:
+    traces:
+      backend: s3
+      size: 1Gi
+      s3:
+        secret: minio
+  jaegerui:
+    enabled: true
+  multitenancy:
+    enabled: true
+    mode: openshift
+    authentication:
+      - tenantName: dev
+        tenantId: "1610b0c3-c509-4592-a256-a1871353dbfa"
+      - tenantName: prod
+        tenantId: "1610b0c3-c509-4592-a256-a1871353dbfb"
