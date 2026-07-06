@@ -108,17 +108,12 @@ Operator creates automatically (from a Proposal):
 So yes, it all starts with a Proposal. The operator watches for new Proposals and drives them through the lifecycle, creating the result CRs along the way.
 
 
-┌────────────────────┬────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│      Resource      │                                                                      Purpose                                                                       │
-├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ AnalysisResult     │ The agent's diagnosis and proposed plan — what it found, what actions it recommends, RBAC it needs, risk assessment, rollback plan                 │
-├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ ExecutionResult    │ Outcome of actually running the proposed actions — which commands succeeded/failed, what changed on the cluster                                    │
-├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ VerificationResult │ Post-execution check — did the fixes actually work? Runs the verification steps defined in the analysis (e.g., "pods healthy", "exporter success") │
-├────────────────────┼────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ ProposalApproval   │ Approval gate — whether a human approved the proposal before execution proceeds                                                                    │
-└────────────────────┴────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+| Resource | Purpose |
+|----------|---------|
+| AnalysisResult | The agent's diagnosis and proposed plan — what it found, what actions it recommends, RBAC it needs, risk assessment, rollback plan |
+| ExecutionResult | Outcome of actually running the proposed actions — which commands succeeded/failed, what changed on the cluster |
+| VerificationResult | Post-execution check — did the fixes actually work? Runs the verification steps defined in the analysis (e.g., "pods healthy", "exporter success") |
+| ProposalApproval | Approval gate — whether a human approved the proposal before execution proceeds |
 
 They represent stages in the proposal lifecycle: Analysis → Approval → Execution → Verification.
 
