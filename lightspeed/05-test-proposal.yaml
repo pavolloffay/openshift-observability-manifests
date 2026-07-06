@@ -1,0 +1,13 @@
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: test-proposal2
+  namespace: openshift-lightspeed
+spec:
+  request: "List all pods in the openshift-lightspeed namespace."
+  targetNamespaces:
+    - openshift-lightspeed
+  analysis:
+    agent: default
+  execution:
+    agent: default

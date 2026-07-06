@@ -1,0 +1,176 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lightspeed-agentic-operator
+  namespace: openshift-lightspeed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lightspeed-agentic-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: lightspeed-agentic-operator
+    namespace: openshift-lightspeed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lightspeed-agent-cluster-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-reader
+subjects:
+  - kind: ServiceAccount
+    name: lightspeed-agent
+    namespace: openshift-lightspeed
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lightspeed-agent-monitoring-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-monitoring-view
+subjects:
+  - kind: ServiceAccount
+    name: lightspeed-agent
+    namespace: openshift-lightspeed
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lightspeed-agentic-operator
+  namespace: openshift-lightspeed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lightspeed-agentic-operator
+  template:
+    metadata:
+      labels:
+        app: lightspeed-agentic-operator
+    spec:
+      serviceAccountName: lightspeed-agentic-operator
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: manager
+          image: quay.io/redhat-user-workloads/crt-nshift-lightspeed-tenant/lightspeed-agentic-operator:main@sha256:d7373db02667fe2fd3e045616144f5498ec7ef01ca715bce73e9e8e93bb97c50
+          args:
+            - "--namespace=openshift-lightspeed"
+            - "--sandbox-mode=bare-pod"
+            - "--agentic-sandbox-image=quay.io/redhat-user-workloads/crt-nshift-lightspeed-tenant/lightspeed-agentic-sandbox:main@sha256:767982acbf70ca130facc2faef45aaedac8a26881bd3823137182f8199492c92"
+            - "--agentic-console-image=quay.io/redhat-user-workloads/crt-nshift-lightspeed-tenant/lightspeed-agentic-console:main@sha256:d2c3314555cdf082a4cb82dbf6f984f93ae1e52cc031bbddd8fa10ee1ca0c119"
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+            - name: webhook
+              containerPort: 9443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: webhook-certs
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.openshift-lightspeed.svc.cluster.local:4317
+            - name: OTEL_TRACES_EXPORTER
+              value: otlp
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+      volumes:
+        - name: webhook-certs
+          secret:
+            secretName: agentic-operator-webhook-certs
+            optional: true
+---
+# Webhook Service for the agentic operator.
+# The annotation tells OpenShift to auto-generate a TLS certificate and store it
+# in the secret "agentic-operator-webhook-certs". The operator mounts this secret
+# to serve HTTPS on port 9443.
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentic-operator-webhook-service
+  namespace: openshift-lightspeed
+  annotations:
+    service.beta.openshift.io/serving-cert-secret-name: agentic-operator-webhook-certs
+spec:
+  ports:
+    - port: 443
+      targetPort: 9443
+      protocol: TCP
+  selector:
+    app: lightspeed-agentic-operator
+---
+# MutatingWebhookConfiguration for ProposalApproval resources.
+# When a user approves/denies a proposal stage via ProposalApproval, this webhook
+# validates and mutates the approval request before it's persisted. This enables
+# the operator to enforce approval policies and track approval state changes.
+# The "inject-cabundle" annotation tells OpenShift to inject the cluster CA bundle
+# so the API server trusts the webhook's TLS certificate.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: agentic-operator-mutating-webhook
+  annotations:
+    service.beta.openshift.io/inject-cabundle: "true"
+webhooks:
+  - name: proposalapproval-mutator.agentic.openshift.io
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: openshift-lightspeed
+    clientConfig:
+      service:
+        name: agentic-operator-webhook-service
+        namespace: openshift-lightspeed
+        path: /mutate-proposalapproval
+    rules:
+      - operations: ["UPDATE"]
+        apiGroups: ["agentic.openshift.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["proposalapprovals"]
+    failurePolicy: Fail
+    sideEffects: None
+    admissionReviewVersions: ["v1"]

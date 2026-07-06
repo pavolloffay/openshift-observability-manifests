@@ -1,0 +1,38 @@
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: detect-missing-instrumentation
+  namespace: openshift-lightspeed
+spec:
+  request: |
+    Find all deployments in the namespace "my-application" that are not producing
+    distributed traces. For each uninstrumented deployment, detect the programming
+    language and apply OpenTelemetry auto-instrumentation. Verify that traces start
+    flowing after instrumentation is applied.
+
+    Use the following Instrumentation CR:
+
+    ```yaml
+    apiVersion: opentelemetry.io/v1alpha1
+    kind: Instrumentation
+    metadata:
+      name: auto-instrumentation
+      namespace: my-application
+    spec:
+      exporter:
+        endpoint: http://dev-collector.otel-observability.svc.cluster.local:4317
+      propagators:
+        - tracecontext
+        - baggage
+    ```
+  targetNamespaces:
+    - my-application
+  tools:
+    skills:
+      - image: ghcr.io/pavolloffay/observability-agentic-skills:latest
+        paths:
+          - /skills/observability/missing-instrumentation-detector
+  analysis:
+    agent: default
+  execution:
+    agent: default

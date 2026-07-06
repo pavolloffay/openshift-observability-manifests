@@ -1,0 +1,23 @@
+apiVersion: agentic.openshift.io/v1alpha1
+kind: Proposal
+metadata:
+  name: instrument-tutorial5
+  namespace: openshift-lightspeed
+spec:
+  request: |
+    Instrument all deployments in the namespace "tutorial-application" for tracing.
+
+    Use the following Instrumentation CR from the tutorial-application namespace.
+  targetNamespaces:
+    - tutorial-application
+  tools:
+    skills:
+      - image: ghcr.io/pavolloffay/observability-agentic-skills:latest
+        paths:
+          - /skills/observability/missing-instrumentation-detector
+  analysis:
+    agent: default
+  execution:
+    agent: default
+  verification:
+    agent: default

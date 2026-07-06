@@ -33,7 +33,7 @@ spec:
           s3:
             endpoint: https://s3.openshift-storage.svc:443
             bucket: tracing-bucket
-            accessKeyID: alpBATHU5yrA4oQJdwv3  # oc get secret tracing-bucket -n observability -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d
+            accessKeyID: veirzFfZbRXsNq4wmNG0  # oc get secret tracing-bucket -n observability -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d
             accessKeySecret:
               name: tracing-bucket
               key: AWS_SECRET_ACCESS_KEY

@@ -1,0 +1,26 @@
+apiVersion: ols.openshift.io/v1alpha1
+kind: OLSConfig
+metadata:
+  name: cluster
+spec:
+  llm:
+    providers:
+    - name: Azure
+      type: azure_openai
+      credentialsSecretRef:
+        name: azure-openai-api-keys
+      url: https://ols-test.openai.azure.com/
+      deploymentName: gpt-5
+      models:
+      - name: gpt-5
+  ols:
+    defaultProvider: Azure
+    defaultModel: gpt-5
+    logLevel: INFO
+    conversationCache:
+      type: postgres
+      postgres:
+        sharedBuffers: 256MB
+        maxConnections: 2000
+    deployment:
+      replicas: 1

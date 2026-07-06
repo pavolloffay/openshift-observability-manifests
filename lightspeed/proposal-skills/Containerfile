@@ -1,0 +1,5 @@
+FROM scratch
+COPY missing-instrumentation-detector/ /skills/observability/missing-instrumentation-detector/
+
+LABEL distribution-scope="public" \
+      description="Observability skills for OpenShift LightSpeed agentic operator"

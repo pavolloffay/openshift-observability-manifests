@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-openai-api-keys
+  namespace: openshift-lightspeed
+type: Opaque
+stringData:
+  client_id: <your-azure-app-id>
+  client_secret: <your-azure-password>
+  tenant_id: <your-azure-tenant-id>

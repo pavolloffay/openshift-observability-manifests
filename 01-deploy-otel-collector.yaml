@@ -6,7 +6,8 @@ metadata:
   name: dev
   namespace: otel-observability
 spec:
-#  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0
+  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.153.0
+  #  image: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib:0.119.0
   args:
     feature-gates: service.profilesSupport
   observability:
@@ -78,8 +79,8 @@ spec:
       debug: {}
 
       otlphttp/tempo:
-#        endpoint: https://tempo-simplest-gateway.tempo-observability.svc.cluster.local:8080/api/traces/v1/dev
-        endpoint: http://tempo-simplest-distributor.tempo-observability.svc.cluster.local:4318
+        endpoint: https://tempo-simplest-gateway.tempo-observability.svc.cluster.local:8080/api/traces/v1/dev
+#        endpoint: http://tempo-simplest-distributor.tempo-observability.svc.cluster.local:4318
         tls:
           insecure: false
           ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
@@ -131,7 +132,7 @@ spec:
         # Remove this section if Tempo is not deployed
         traces:
           receivers: [otlp, jaeger, zipkin]
-          processors: [memory_limiter, k8sattributes, attributes/remove_pavol_username, batch]
+          processors: [memory_limiter, k8sattributes, batch]
           exporters:
             - debug
             - otlphttp/tempo
